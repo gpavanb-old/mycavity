@@ -37,6 +37,10 @@ using namespace std;
  int *li;
  double *dpx,*dpy,*su,*sv,*apu,*apv;
  double *ap,*ae,*aw,*an,*as;
+ 
+ // solver parameters
+ double *A;
+ int mdim;
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 void grid(){ // generates a structured uniform grid...
@@ -89,6 +93,117 @@ void tecplot(char filename[256]) { // write a tecplot ASCII file
   }
   fclose(fp_tecplot);
 }
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+bool inbounds(int a) {
+  if (a >= 0 && a < mdim) return true;
+  return false;
+}
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+void constructA() {
+  
+  int i,j;
+  int ij,pq;
+  int nr;
+  
+  int ny_s;
+  
+  // row number
+  for (int p=1; p<=nx-2; p++) {
+    
+    // i goes from 2 to nx-1 (border points skipped)
+    i = p+1; 
+    
+    // column number
+    for (int q=1; q<=ny-2; q++) {
+      
+      // j goes from 2 to ny-1 (border points skipped)
+      j = q+1;
+      
+      // ij defined as usual
+      ij = li[i]+j;
+      
+      // pq index : (p-1)*(ny-2) is analogous to li for smaller matrix
+      ny_s = ny-2;
+      pq = (p-1)*ny_s + q;
+      
+      // index adjusted for matrix
+      nr = pq-1;
+      
+      // set diagonal term
+      A[nr*mdim + nr] = ap[ij];
+      
+      // set neighbor terms
+      if (inbounds(nr+1)) A[nr*mdim + (nr+1)] = an[ij];
+      if (inbounds(nr-1)) A[nr*mdim + (nr-1)] = as[ij];
+      if (inbounds(nr+ny_s)) A[nr*mdim + (nr+ny_s)] = ae[ij];
+      if (inbounds(nr-ny_s)) A[nr*mdim + (nr-ny_s)] = aw[ij];
+    }
+  }
+
+}
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+void outputA() {
+  
+  int pq;
+  int nr;
+  
+  int ny_s;
+  
+  for (int p=1; p<= nx-2; p++) {
+    for (int q=1; q<=ny-2; q++) {
+      
+      // pq index : (p-1)*(ny-2) is analogous to li for smaller matrix
+      ny_s = ny-2;
+      pq = (p-1)*ny_s + q;
+      
+      // row number in matrix
+      nr = pq-1;
+      
+      std::cout << "printing row " << pq << std::endl;
+      
+      for (int k=0; k<mdim; k++) {
+        std::cout << A[nr*mdim + k] << ' ';
+      }
+      std::cout << std::endl; 
+    }
+  }
+  
+}
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+void repopulateX(double* x_s, double* x) {
+  
+  // must deallocate x at end of program
+  // no shits given in the code provided
+  
+  int i,j;
+  int ij,pq;
+  int nr;
+  
+  int ny_s;
+  
+  for (int p=1; p<= nx-2; p++) {
+    for (int q=1; q<=ny-2; q++) {
+      
+      // pq index : (p-1)*(ny-2) is analogous to li for smaller matrix
+      ny_s = ny-2;
+      pq = (p-1)*ny_s + q;
+      
+      // ij defined as usual
+      i = p+1;
+      j = q+1;
+      ij = li[i]+j;
+      
+      // set element
+      x[ij] = x_s[pq];
+      
+    }
+  }
+  
+}
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 double sipsol(int nsw, double *x, double *b, double tol) { // linear system solver Ax = b with A stored in terms of its diagonals...
@@ -599,6 +714,10 @@ int main(int argc, char **argv){
     dpx = new double[nno+1]; dpy = new double[nno+1];
     su = new double[nno+1]; sv = new double[nno+1];
     apu = new double[nno+1]; apv = new double[nno+1];
+    
+    // allocate matrix
+    mdim = (nx-2)*(ny-2);
+    A = new double[mdim*mdim];
 
     // initialize
     resu = 0.0; resv = 0.0; resp = 0.0; resT = 0.0; sum = 0.0; 
@@ -634,7 +753,7 @@ int main(int argc, char **argv){
       for (int istep=1; istep <= nsteps; istep++) {
 
         // solve momentum equations
-        resu = calcuv();        
+        resu = calcuv();
 
         // solve pressure equation and update momentum
         resp = calcp();
