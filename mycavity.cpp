@@ -1,7 +1,17 @@
+// Important: this definition ensures Armadillo enables SuperLU
+#define ARMA_USE_SUPERLU 1
+
+// set SuperLU include directory
+#define ARMA_SUPERLU_INCLUDE_DIR /Users/gpavanb/cfd/numLibs/SuperLU/SRC/
+
 #include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+
+//test solve using armadillo
+#include <armadillo>
+
 using namespace std;
 
  // solve unsteady NS for a Boussinesq fluid in a heated cavity
@@ -39,7 +49,8 @@ using namespace std;
  double *ap,*ae,*aw,*an,*as;
  
  // solver parameters
- double *A;
+ arma::sp_mat A;
+ arma::vec B;
  int mdim;
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -100,7 +111,7 @@ bool inbounds(int a) {
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-void constructA() {
+void constructLinProb(double* b) {
   
   int i,j;
   int ij,pq;
@@ -131,13 +142,17 @@ void constructA() {
       nr = pq-1;
       
       // set diagonal term
-      A[nr*mdim + nr] = ap[ij];
+      A(nr,nr) = ap[ij];
+      
+      // set B as well
+      // This is the only b related stuff
+      B(nr,0) = b[ij];
       
       // set neighbor terms
-      if (inbounds(nr+1)) A[nr*mdim + (nr+1)] = an[ij];
-      if (inbounds(nr-1)) A[nr*mdim + (nr-1)] = as[ij];
-      if (inbounds(nr+ny_s)) A[nr*mdim + (nr+ny_s)] = ae[ij];
-      if (inbounds(nr-ny_s)) A[nr*mdim + (nr-ny_s)] = aw[ij];
+      if (inbounds(nr+1)) A(nr,nr+1) = an[ij];
+      if (inbounds(nr-1)) A(nr,nr-1) = as[ij];
+      if (inbounds(nr+ny_s)) A(nr,nr+ny_s) = ae[ij];
+      if (inbounds(nr-ny_s)) A(nr,nr-ny_s) = aw[ij];
     }
   }
 
@@ -163,7 +178,7 @@ void outputA() {
       std::cout << "printing row " << pq << std::endl;
       
       for (int k=0; k<mdim; k++) {
-        std::cout << A[nr*mdim + k] << ' ';
+        std::cout << A(nr,k) << ' ';
       }
       std::cout << std::endl; 
     }
@@ -171,7 +186,7 @@ void outputA() {
   
 }
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-void repopulateX(double* x_s, double* x) {
+void repopulateX(double* x) {
   
   // must deallocate x at end of program
   // no shits given in the code provided
@@ -195,14 +210,25 @@ void repopulateX(double* x_s, double* x) {
       ij = li[i]+j;
       
       // set element
-      x[ij] = x_s[pq];
+      x[ij] = X(pq,1);
       
     }
   }
   
 }
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
+double sipsol_test(double* x, double* b) {
+  
+  // construct A
+  
+  
+  // construct b
+  
+  // solve x
+  
+  // return answer
+  
+}
 
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -715,9 +741,11 @@ int main(int argc, char **argv){
     su = new double[nno+1]; sv = new double[nno+1];
     apu = new double[nno+1]; apv = new double[nno+1];
     
-    // allocate matrix
+    // allocate for linear system solve
     mdim = (nx-2)*(ny-2);
-    A = new double[mdim*mdim];
+    A = arma::sp_mat(mdim,mdim);
+    B = arma::mat(mdim,1);
+    X = arma::vec(mdim);
 
     // initialize
     resu = 0.0; resv = 0.0; resp = 0.0; resT = 0.0; sum = 0.0; 
@@ -747,13 +775,19 @@ int main(int argc, char **argv){
       }
       // inner iteration...
       printf(" Step %d - time %lf \n",itime,time);
-      fprintf(fpout,"=== CONVERNGECE HISTORY ===================================================\n");
+      fprintf(fpout,"=== CONVERGENCE HISTORY ===================================================\n");
       fprintf(fpout," Step %d - time %lf \n",itime,time);
       fprintf(fpout," Iter Res(U)         Res(V)         Res(p)         Res(T)         Mas I/O \n");
       for (int istep=1; istep <= nsteps; istep++) {
 
         // solve momentum equations
         resu = calcuv();
+        constructLinProb(sv);
+        outputA();
+        arma::vec X = arma::spsolve(A,B,"superlu");
+        repopulateX(v);
+        
+        return(1);
 
         // solve pressure equation and update momentum
         resp = calcp();
