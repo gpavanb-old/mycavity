@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <math.h>
 
+//enable to user SuperLU
+#define ARMA_USE_SUPERLU 1
+
 //test solve using armadillo
 #include <armadillo>
 
@@ -212,7 +215,7 @@ double sipsol_arma(double* x, double* b) {
   constructLinProb(b);
   
   // solve x
-  X = arma::spsolve(A,B,"lapack");
+  X = arma::spsolve(A,B,"superlu");
   
   // return answer
   repopulatex(x);
