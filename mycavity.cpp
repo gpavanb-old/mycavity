@@ -141,7 +141,7 @@ void constructLinProb(double* b) {
       
       // set B as well
       // This is the only b related stuff
-      B(nr,0) = b[ij];
+      B(nr) = b[ij];
       
       // set neighbor terms
       if (inbounds(nr+1)) A(nr,nr+1) = an[ij];
@@ -181,48 +181,41 @@ void outputA() {
   
 }
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-void repopulateX(double* x) {
-  
-  // must deallocate x at end of program
-  // no shits given in the code provided
-  
-  int i,j;
-  int ij,pq;
-  int nr;
-  
-  int ny_s;
-  
-  for (int p=1; p<= nx-2; p++) {
-    for (int q=1; q<=ny-2; q++) {
-      
-      // pq index : (p-1)*(ny-2) is analogous to li for smaller matrix
-      ny_s = ny-2;
-      pq = (p-1)*ny_s + q;
-      
-      // ij defined as usual
-      i = p+1;
-      j = q+1;
-      ij = li[i]+j;
-      
-      // set element
-      x[ij] = X(pq,1);
-      
+arma::vec getx(double* x) {
+ arma::vec Y(mdim);
+ int ct = 0;
+ for (int i=2; i<=nx-1; i++) {
+    for (int ij=li[i]+2; ij<=li[i]+ny-1; ij++) {
+      Y(ct) = x[ij];
+      ct++;
     }
-  }
-  
+ }
+ return Y;
 }
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-double sipsol_test(double* x, double* b) {
+void repopulatex(double* x) {
+  
+  // This is just the inverse of getx
+  
+  int ct = 0;
+  for (int i=2; i<=nx-1; i++) {
+    for (int ij=li[i]+2; ij<=li[i]+ny-1; ij++) {
+      x[ij] = X(ct);
+      ct++;
+    }
+  }
+}
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+double sipsol_arma(double* x, double* b) {
   
   // construct A
-  
- 
-  // construct b
+  constructLinProb(b);
   
   // solve x
+  X = arma::spsolve(A,B,"lapack");
   
   // return answer
-  
+  repopulatex(x);
 }
 
 
@@ -375,8 +368,10 @@ double calct() { // solve the energy equation
     }
   }
   // solve linear system...
-  resT = sipsol(nsw, T, su, tol);
-  return resT;
+  //resT = sipsol(nsw, T, su, tol);
+  //return resT;
+  
+  sipsol_arma(T,su); return 0;
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -536,7 +531,8 @@ double calcuv() { // solve the momentum equations
     }
   }
   // solve linear system for u...
-  resu = sipsol(nsw, u, su, tol);
+  //resu = sipsol(nsw, u, su, tol);
+  sipsol_arma(u,su); resu = 0.0;
 
   // apply under-relaxation for v
   for (int i=2; i<=nx-1; i++) {
@@ -547,7 +543,8 @@ double calcuv() { // solve the momentum equations
     }
   }
   // solve linear system for v...
-  resv = sipsol(nsw, v, sv, tol);
+  //resv = sipsol(nsw, v, sv, tol);
+  sipsol_arma(v,sv); resv = 0.0;
 
   return sqrt(resu*resu+resv*resv);
 }
@@ -613,6 +610,9 @@ double calcp() { // solve the pressure equation and update momentum
   }
   //  solve the sytem
   resp = sipsol(nsw, pp, su, tol);
+  //std::cout << "Solving pressure" << std::endl;
+  //sipsol_arma(pp,su); phibc(pp); return 0;
+  //std::cout << "Solved pressure" << std::endl;
 
   // extrapolate pp
   phibc(pp); // extrapolate the pressure at the boundaries
@@ -740,6 +740,7 @@ int main(int argc, char **argv){
     mdim = (nx-2)*(ny-2);
     A = arma::sp_mat(mdim,mdim);
     B = arma::vec(mdim);   
+    X = arma::vec(mdim);
 
     // initialize
     resu = 0.0; resv = 0.0; resp = 0.0; resT = 0.0; sum = 0.0; 
@@ -776,12 +777,15 @@ int main(int argc, char **argv){
 
         // solve momentum equations
         resu = calcuv();
-        constructLinProb(sv);
-        outputA();
-        arma::vec X = arma::spsolve(A,B,"lapack");
-        //repopulateX(v);
-        
-        return(1);
+
+	// Verification : check matrix	
+        //constructLinProb(sv);
+        //outputA();
+
+	// Verification : check output error
+        //arma::vec X = arma::spsolve(A,B,"lapack");
+        //arma::vec Y = getx(v);
+	//std::cout << X-Y << std::endl;
 
         // solve pressure equation and update momentum
         resp = calcp();
