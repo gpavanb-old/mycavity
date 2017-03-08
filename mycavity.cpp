@@ -1,9 +1,3 @@
-// Important: this definition ensures Armadillo enables SuperLU
-#define ARMA_USE_SUPERLU 1
-
-// set SuperLU include directory
-#define ARMA_SUPERLU_INCLUDE_DIR /Users/gpavanb/cfd/numLibs/SuperLU/SRC/
-
 #include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,6 +45,7 @@ using namespace std;
  // solver parameters
  arma::sp_mat A;
  arma::vec B;
+ arma::vec X;
  int mdim;
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -221,7 +216,7 @@ double sipsol_test(double* x, double* b) {
   
   // construct A
   
-  
+ 
   // construct b
   
   // solve x
@@ -744,8 +739,7 @@ int main(int argc, char **argv){
     // allocate for linear system solve
     mdim = (nx-2)*(ny-2);
     A = arma::sp_mat(mdim,mdim);
-    B = arma::mat(mdim,1);
-    X = arma::vec(mdim);
+    B = arma::vec(mdim);   
 
     // initialize
     resu = 0.0; resv = 0.0; resp = 0.0; resT = 0.0; sum = 0.0; 
@@ -784,8 +778,8 @@ int main(int argc, char **argv){
         resu = calcuv();
         constructLinProb(sv);
         outputA();
-        arma::vec X = arma::spsolve(A,B,"superlu");
-        repopulateX(v);
+        arma::vec X = arma::spsolve(A,B,"lapack");
+        //repopulateX(v);
         
         return(1);
 
