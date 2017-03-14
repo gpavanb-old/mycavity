@@ -3,11 +3,8 @@
 #include <stdlib.h>
 #include <math.h>
 
-//enable to user SuperLU
-#define ARMA_USE_SUPERLU 1
-
-//test solve using armadillo
-#include <armadillo>
+// Solve using elemental
+#include "El.hpp"
 
 using namespace std;
 
@@ -45,10 +42,8 @@ using namespace std;
  double *dpx,*dpy,*su,*sv,*apu,*apv;
  double *ap,*ae,*aw,*an,*as;
  
- // solver parameters
- arma::sp_mat A;
- arma::vec B;
- arma::vec X;
+ // elemental solver variables
+ int nx_s, ny_s;
  int mdim;
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -109,116 +104,115 @@ bool inbounds(int a) {
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-void constructLinProb(double* b) {
+void constructLinProb(double* b, El::DistSparseMatrix<double>& A, El::DistMultiVec<double>& B) {
   
-  int i,j;
-  int ij,pq;
-  int nr;
+  int i,j,ij;
   
-  int ny_s;
-  
-  // row number
-  for (int p=1; p<=nx-2; p++) {
+  // construct local part of matrix
+  const El::Int localHeight = A.LocalHeight();
+
+  // There are atmost 5 elements in each row
+  // Each process handles atmost 5*localHeight
+  A.Reserve(5*localHeight);
+
+  for ( El::Int pLoc=0; pLoc<localHeight; ++pLoc ) {
+
+    const El::Int p = A.GlobalRow(pLoc);
+    const El::Int x0 = p / ny_s;
+    const El::Int x1 = p % ny_s;
     
     // i goes from 2 to nx-1 (border points skipped)
-    i = p+1; 
-    
-    // column number
-    for (int q=1; q<=ny-2; q++) {
+    i = x0+2; 
       
-      // j goes from 2 to ny-1 (border points skipped)
-      j = q+1;
+    // j goes from 2 to ny-1 (border points skipped)
+    j = x1+2;
       
-      // ij defined as usual
-      ij = li[i]+j;
+    // ij defined as usual
+    ij = li[i]+j;
       
-      // pq index : (p-1)*(ny-2) is analogous to li for smaller matrix
-      ny_s = ny-2;
-      pq = (p-1)*ny_s + q;
+    // set diagonal term
+    A.QueueLocalUpdate(pLoc,p,ap[ij]);
       
-      // index adjusted for matrix
-      nr = pq-1;
+    // set B as well
+    // This is the only b related stuff
+    B.SetLocal(pLoc,0,b[ij]);
       
-      // set diagonal term
-      A(nr,nr) = ap[ij];
-      
-      // set B as well
-      // This is the only b related stuff
-      B(nr) = b[ij];
-      
-      // set neighbor terms
-      if (inbounds(nr+1)) A(nr,nr+1) = an[ij];
-      if (inbounds(nr-1)) A(nr,nr-1) = as[ij];
-      if (inbounds(nr+ny_s)) A(nr,nr+ny_s) = ae[ij];
-      if (inbounds(nr-ny_s)) A(nr,nr-ny_s) = aw[ij];
-    }
+    // set neighbor terms
+    if (inbounds(p+1)) A.QueueLocalUpdate(pLoc,p+1,an[ij]);
+    if (inbounds(p-1)) A.QueueLocalUpdate(pLoc,p-1,as[ij]);
+    if (inbounds(p+ny_s)) A.QueueLocalUpdate(pLoc,p+ny_s,ae[ij]);
+    if (inbounds(p-ny_s)) A.QueueLocalUpdate(pLoc,p-ny_s,aw[ij]);
   }
+  A.ProcessLocalQueues();
+  
+}
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+El::DistMultiVec<double> getx(double* x) {
+  
+  int i,j,ij;
+  
+  El::DistMultiVec<double> Y(mdim,1);
+  
+  const El::Int localHeight = Y.LocalHeight();
+  
+  for ( El::Int pLoc=0; pLoc<localHeight; ++pLoc ) {
 
-}
+    const El::Int p = Y.GlobalRow(pLoc);
+    const El::Int x0 = p / ny_s;
+    const El::Int x1 = p % ny_s;
+    
+    // i goes from 2 to nx-1 (border points skipped)
+    i = x0+2; 
+      
+    // j goes from 2 to ny-1 (border points skipped)
+    j = x1+2;
+      
+    // ij defined as usual
+    ij = li[i]+j;
+    
+    Y.SetLocal(pLoc,0,x[ij]);
+  }
+  
+  return Y;
+} 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-void outputA() {
+void repopulatex(double* x, El::DistMultiVec<double>& X) {
   
-  int pq;
-  int nr;
+  int i,j,ij;
   
-  int ny_s;
+  const El::Int localHeight = X.LocalHeight();
   
-  for (int p=1; p<= nx-2; p++) {
-    for (int q=1; q<=ny-2; q++) {
+  for ( El::Int pLoc=0; pLoc<localHeight; ++pLoc ) {
+
+    const El::Int p = X.GlobalRow(pLoc);
+    const El::Int x0 = p / ny_s;
+    const El::Int x1 = p % ny_s;
+    
+    // i goes from 2 to nx-1 (border points skipped)
+    i = x0+2; 
       
-      // pq index : (p-1)*(ny-2) is analogous to li for smaller matrix
-      ny_s = ny-2;
-      pq = (p-1)*ny_s + q;
+    // j goes from 2 to ny-1 (border points skipped)
+    j = x1+2;
       
-      // row number in matrix
-      nr = pq-1;
-      
-      std::cout << "printing row " << pq << std::endl;
-      
-      for (int k=0; k<mdim; k++) {
-        std::cout << A(nr,k) << ' ';
-      }
-      std::cout << std::endl; 
-    }
+    // ij defined as usual
+    ij = li[i]+j;
+    
+    x[ij] = X.GetLocal(pLoc,0);
   }
   
 }
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-arma::vec getx(double* x) {
- arma::vec Y(mdim);
- int ct = 0;
- for (int i=2; i<=nx-1; i++) {
-    for (int ij=li[i]+2; ij<=li[i]+ny-1; ij++) {
-      Y(ct) = x[ij];
-      ct++;
-    }
- }
- return Y;
-}
-//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-void repopulatex(double* x) {
+double sipsol_el(double* x, double* b, El::DistSparseMatrix<double> A, 
+                 El::DistMultiVec<double> B) {
   
-  // This is just the inverse of getx
-  
-  int ct = 0;
-  for (int i=2; i<=nx-1; i++) {
-    for (int ij=li[i]+2; ij<=li[i]+ny-1; ij++) {
-      x[ij] = X(ct);
-      ct++;
-    }
-  }
-}
-//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-double sipsol_arma(double* x, double* b) {
-  
-  // construct A
-  constructLinProb(b);
+  // construct A            
+  constructLinProb(b,A,B);
   
   // solve x
-  X = arma::spsolve(A,B,"superlu");
+  El::LinearSolve(A,B);
   
   // return answer
-  repopulatex(x);
+  repopulatex(x,B);
 }
 
 
@@ -344,7 +338,8 @@ void tbc() { // apply boundary conditions for the energy equation
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-double calct() { // solve the energy equation
+double calct(El::DistSparseMatrix<double> A, El::DistMultiVec<double> B) { 
+  // solve the energy equation
   int nsw = 2; // iterations for the linear system solver
   double tol = 0.2; // tolerance for the linear system solver
   double urf = 0.9; // under-relaxation factor 
@@ -374,7 +369,7 @@ double calct() { // solve the energy equation
   //resT = sipsol(nsw, T, su, tol);
   //return resT;
   
-  sipsol_arma(T,su); return 0;
+  sipsol_el(T,su,A,B); return 0;
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -499,7 +494,8 @@ void uvrhs() { // source terms for the momentum equations
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-double calcuv() { // solve the momentum equations
+double calcuv(El::DistSparseMatrix<double> A, El::DistMultiVec<double> B) { 
+  // solve the momentum equations
   int nsw = 5; // iterations for the linear system solver
   double tol = 0.2; // tolerance for the linear system solver
   double urf = 0.8; // under-relaxation factor
@@ -535,7 +531,7 @@ double calcuv() { // solve the momentum equations
   }
   // solve linear system for u...
   //resu = sipsol(nsw, u, su, tol);
-  sipsol_arma(u,su); resu = 0.0;
+  sipsol_el(u,su,A,B); resu = 0.0;
 
   // apply under-relaxation for v
   for (int i=2; i<=nx-1; i++) {
@@ -547,13 +543,14 @@ double calcuv() { // solve the momentum equations
   }
   // solve linear system for v...
   //resv = sipsol(nsw, v, sv, tol);
-  sipsol_arma(v,sv); resv = 0.0;
+  sipsol_el(v,sv,A,B); resv = 0.0;
 
   return sqrt(resu*resu+resv*resv);
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-double calcp() { // solve the pressure equation and update momentum
+double calcp(El::DistSparseMatrix<double> A, El::DistMultiVec<double> B) { 
+  // solve the pressure equation and update momentum
 
   int nsw = 200; // iterations for the linear system solver
   double tol = 0.02; // tolerance for the linear system solver
@@ -612,15 +609,15 @@ double calcp() { // solve the pressure equation and update momentum
     }
   }
   //  solve the sytem
-  resp = sipsol(nsw, pp, su, tol);
+  //resp = sipsol(nsw, pp, su, tol);
   //std::cout << "Solving pressure" << std::endl;
-  //sipsol_arma(pp,su); phibc(pp); return 0;
-  //std::cout << "Solved pressure" << std::endl;
+  sipsol_el(pp,su,A,B); phibc(pp); 
+  //std::cout << "Solved pressure" << std::endl;return 0;
 
   // extrapolate pp
   phibc(pp); // extrapolate the pressure at the boundaries
 
-  return resp;
+  return 0.0;
 }
 
 void correct() { // correct velocity and pressure field
@@ -692,9 +689,24 @@ void output() { // compute output quantities of interest
   fprintf(fpout," Maximum velocity magnitude: %lf \n",sqrt(vmagmax));
 }
 
-
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 int main(int argc, char **argv){
+
+    // Elemental additions
+    El::Environment env( argc, argv );
+    El::mpi::Comm comm = El::mpi::COMM_WORLD;
+    const int commRank = El::mpi::Rank( comm );
+
+    // Elemental - get block size for algorithms
+    // TODO : Check if necessary 
+    const El::Int blocksize =
+    El::Input("--blocksize","algorithmic blocksize",64);
+    const El::Int verbose = 
+    El::Input("--verbose","verbose output",0);
+    El::ProcessInput();
+    El::PrintInputReport();
+
+    El::SetBlocksize( blocksize );
 
     // read input file
     FILE *fp; fp=fopen("mycavity.in","r");
@@ -705,22 +717,26 @@ int main(int argc, char **argv){
     fscanf(fp," %d %d %lf %d %lf \n",&nx,&ny,&dt,&nsteps,&converged); // discretization
     fscanf(fp," %d \n",&adim); // output
     fclose(fp);
+    
 
     // write output file
-    fpout=fopen("mycavity.out","w");
-    fprintf(fpout,"=== INPUT FILE ============================================================\n");
-    fprintf(fpout," domain size, number of inner steps >> %lf %lf %lf \n",lx,ly,finaltime);
-    fprintf(fpout," density, viscosity, Pr  >> %lf %lf %lf \n",densit,visc,prm);
-    fprintf(fpout," buoyancy force >> %lf %lf %lf \n",gravx,gravy,beta);
-    fprintf(fpout," wall BC >> %lf %lf %lf \n",Th,Tc,Tref);
-    fprintf(fpout," discretization >> %d %d %lf %d %lf \n",nx,ny,dt,nsteps,converged);
-    fprintf(fpout," output >> %d \n",adim);
-    fprintf(fpout,"===========================================================================\n");
-    double grav = sqrt(gravx*gravx+gravy*gravy);
-    double grashof = grav*beta*(Th-Tc)*lx*lx*lx/visc/visc;
-    fprintf(fpout," Prandtl, Rayleigh, Grashof >> %lf %lf %lf \n",prm,grashof*prm,grashof);
-    fprintf(fpout,"===========================================================================\n");
+    if (commRank == 0) {  
+      fpout=fopen("mycavity.out","w");
+      fprintf(fpout,"=== INPUT FILE ============================================================\n");
+      fprintf(fpout," domain size, number of inner steps >> %lf %lf %lf \n",lx,ly,finaltime);
+      fprintf(fpout," density, viscosity, Pr  >> %lf %lf %lf \n",densit,visc,prm);
+      fprintf(fpout," buoyancy force >> %lf %lf %lf \n",gravx,gravy,beta);
+      fprintf(fpout," wall BC >> %lf %lf %lf \n",Th,Tc,Tref);
+      fprintf(fpout," discretization >> %d %d %lf %d %lf \n",nx,ny,dt,nsteps,converged);
+      fprintf(fpout," output >> %d \n",adim);
+      fprintf(fpout,"===========================================================================\n");
+      double grav = sqrt(gravx*gravx+gravy*gravy);
+      double grashof = grav*beta*(Th-Tc)*lx*lx*lx/visc/visc;
+      fprintf(fpout," Prandtl, Rayleigh, Grashof >> %lf %lf %lf \n",prm,grashof*prm,grashof);
+      fprintf(fpout,"===========================================================================\n");
     // close the file at the end..
+      
+    }  
 
     nno = nx*ny;
 
@@ -740,11 +756,27 @@ int main(int argc, char **argv){
     apu = new double[nno+1]; apv = new double[nno+1];
     
     // allocate for linear system solve
-    mdim = (nx-2)*(ny-2);
-    A = arma::sp_mat(mdim,mdim);
-    B = arma::vec(mdim);   
-    X = arma::vec(mdim);
+    nx_s = nx-2;
+    ny_s = ny-2;
+    mdim = nx_s*ny_s;
 
+    // Initialise A
+    El::DistSparseMatrix<double> A;
+    El::Zeros(A,mdim,mdim);
+
+    El::DistMultiVec<double> B(mdim,1);
+    El::DistMultiVec<double> X(mdim,1);
+    
+    El::Timer timer;
+    
+    // Output localHeight
+    if (verbose == 1) {
+      std::cout << "For processor " << commRank << std::endl;
+      std::cout << "A localHeight: " << A.LocalHeight() << std::endl;
+      std::cout << "B localHeight: " << B.LocalHeight() << std::endl;
+      std::cout << std::endl;
+    }
+    
     // initialize
     resu = 0.0; resv = 0.0; resp = 0.0; resT = 0.0; sum = 0.0; 
 
@@ -754,8 +786,10 @@ int main(int argc, char **argv){
     // define and write to file initial conditions
     ic();
     char tecplot_filename[256];
-    sprintf( tecplot_filename, "mycavity_tecplot_%d.dat", 0  );
-    tecplot(tecplot_filename);
+    if (commRank == 0) {
+      sprintf( tecplot_filename, "mycavity_tecplot_%d.dat", 0  );
+      tecplot(tecplot_filename);
+    }
 
     // other control parameters...
     int itimeprint = 50;
@@ -772,52 +806,72 @@ int main(int argc, char **argv){
         T0[i] = T[i]; u0[i] = u[i]; v0[i] = v[i];
       }
       // inner iteration...
-      printf(" Step %d - time %lf \n",itime,time);
-      fprintf(fpout,"=== CONVERGENCE HISTORY ===================================================\n");
-      fprintf(fpout," Step %d - time %lf \n",itime,time);
-      fprintf(fpout," Iter Res(U)         Res(V)         Res(p)         Res(T)         Mas I/O \n");
+      if (commRank == 0) {
+        printf(" Step %d - time %lf \n",itime,time);
+        fprintf(fpout,"=== CONVERGENCE HISTORY ===================================================\n");
+        fprintf(fpout," Step %d - time %lf \n",itime,time);
+        fprintf(fpout," Iter Res(U)         Res(V)         Res(p)         Res(T)         Mas I/O \n");
+      }
+      
       for (int istep=1; istep <= nsteps; istep++) {
 
         // solve momentum equations
-        resu = calcuv();
+        El::mpi::Barrier( comm );
+        if( commRank == 0 ) timer.Start();
+        resu = calcuv(A,B);
+        El::mpi::Barrier( comm );
+        
+        if( commRank == 0 ) El::Output(timer.Stop()," seconds");
+        
+        return(1);
 
 	// Verification : check matrix	
-        //constructLinProb(sv);
-        //outputA();
+        //constructLinProb(sv,A,B);
 
 	// Verification : check output error
-        //arma::vec X = arma::spsolve(A,B,"lapack");
-        //arma::vec Y = getx(v);
-	//std::cout << X-Y << std::endl;
-
+        //El::LinearSolve(A,B);
+        //El::DistMultiVec<double> Y = getx(v);
+	      //Display(B);
+        //Display(Y);
+        
         // solve pressure equation and update momentum
-        resp = calcp();
+        El::mpi::Barrier( comm );
+        resp = calcp(A,B);
+        El::mpi::Barrier( comm );
 
         // correct velocity and pressure field
         correct();
 
         // solve energy equation
-        resT = calct();
+        El::mpi::Barrier( comm );
+        resT = calct(A,B);
+        El::mpi::Barrier( comm );
 
         // compute residual and check convergence
-        fprintf(fpout," %d    %lf       %lf       %lf       %lf       %lf \n",istep,resu,resv,resp,resT,sum);
+        if (commRank == 0)
+          fprintf(fpout," %d    %lf       %lf       %lf       %lf       %lf \n",istep,resu,resv,resp,resT,sum);
         double global_tol=fmax(fmax(fmax(resu,resv),resp),resT);
         if (global_tol > diverged) {
-          fprintf(fpout," Divergence detected...\n");
+          if (commRank == 0)
+            fprintf(fpout," Divergence detected...\n");
           time = 2*finaltime;
           istep = 2*nsteps;
         }
         if (global_tol < converged) {
-           istep = 2*nsteps;
+           //istep = 2*nsteps;
         }
       }
       if (itime % itimeprint == 0) {
+        if (commRank == 0) {
          sprintf( tecplot_filename, "mycavity_tecplot_%d.dat", itime  );
          tecplot(tecplot_filename);
+       }
       }
       // output global quantities of interest...
-      output();
+      if (commRank == 0) output();
+      
     }
-    fclose(fpout);
+    if (commRank == 0)
+      fclose(fpout);
 }
 

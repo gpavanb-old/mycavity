@@ -1,22 +1,9 @@
-HOME_DIR=/home/pavang
+include $(HOME)/numLibs/elemental/conf/ElVars
 
-ARMADILLO_DIR=$(HOME_DIR)/numLibs/armadillo
-ARMADILLO_LIB=$(ARMADILLO_DIR)/lib/
-ARMADILLO_INC=$(ARMADILLO_DIR)/include/
+CXX=CC
+FLAGS=-g
 
-OPT_FLAGS=-O3
+all: test
 
-.PHONY = clean clean_all
-
-all: mycavity
-
-mycavity: mycavity.cpp
-	g++ mycavity.cpp -o mycavity $(OPT_FLAGS) -I$(ARMADILLO_INC) -L$(ARMADILLO_LIB) -larmadillo
-
-clean:
-	rm -f mycavity
-
-clean_all:
-	rm -f *.dat
-	rm -f *.out
-	rm -f mycavity 
+test: mycavity.cpp
+	$(CXX) $(FLAGS) $(EL_COMPILE_FLAGS) $< -o $@ $(EL_LINK_FLAGS) $(EL_LIBS)
