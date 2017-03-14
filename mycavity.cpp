@@ -180,11 +180,11 @@ void repopulatex(double* x, El::DistMultiVec<double>& X) {
   
   int i,j,ij;
   
-  const El::Int localHeight = X.LocalHeight();
+  //const El::Int localHeight = X.LocalHeight();
   
-  for ( El::Int pLoc=0; pLoc<localHeight; ++pLoc ) {
+  for ( El::Int p=0; p<mdim; ++p ) {
 
-    const El::Int p = X.GlobalRow(pLoc);
+    //const El::Int p = X.GlobalRow(pLoc);
     const El::Int x0 = p / ny_s;
     const El::Int x1 = p % ny_s;
     
@@ -197,13 +197,15 @@ void repopulatex(double* x, El::DistMultiVec<double>& X) {
     // ij defined as usual
     ij = li[i]+j;
     
-    x[ij] = X.GetLocal(pLoc,0);
+    x[ij] = X.Get(p,0);
   }
   
 }
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-double sipsol_el(double* x, double* b, El::DistSparseMatrix<double> A, 
-                 El::DistMultiVec<double> B) {
+double sipsol_el(double* x, double* b) {
+  
+  El::DistSparseMatrix<double> A(mdim,mdim);
+  El::DistMultiVec<double> B(mdim,1);
   
   // construct A            
   constructLinProb(b,A,B);
@@ -338,7 +340,7 @@ void tbc() { // apply boundary conditions for the energy equation
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-double calct(El::DistSparseMatrix<double> A, El::DistMultiVec<double> B) { 
+double calct() { 
   // solve the energy equation
   int nsw = 2; // iterations for the linear system solver
   double tol = 0.2; // tolerance for the linear system solver
@@ -369,7 +371,7 @@ double calct(El::DistSparseMatrix<double> A, El::DistMultiVec<double> B) {
   //resT = sipsol(nsw, T, su, tol);
   //return resT;
   
-  sipsol_el(T,su,A,B); return 0;
+  sipsol_el(T,su); return 0;
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -494,7 +496,7 @@ void uvrhs() { // source terms for the momentum equations
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-double calcuv(El::DistSparseMatrix<double> A, El::DistMultiVec<double> B) { 
+double calcuv() { 
   // solve the momentum equations
   int nsw = 5; // iterations for the linear system solver
   double tol = 0.2; // tolerance for the linear system solver
@@ -531,7 +533,7 @@ double calcuv(El::DistSparseMatrix<double> A, El::DistMultiVec<double> B) {
   }
   // solve linear system for u...
   //resu = sipsol(nsw, u, su, tol);
-  sipsol_el(u,su,A,B); resu = 0.0;
+  sipsol_el(u,su); resu = 0.0;
 
   // apply under-relaxation for v
   for (int i=2; i<=nx-1; i++) {
@@ -543,13 +545,13 @@ double calcuv(El::DistSparseMatrix<double> A, El::DistMultiVec<double> B) {
   }
   // solve linear system for v...
   //resv = sipsol(nsw, v, sv, tol);
-  sipsol_el(v,sv,A,B); resv = 0.0;
+  sipsol_el(v,sv); resv = 0.0;
 
   return sqrt(resu*resu+resv*resv);
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-double calcp(El::DistSparseMatrix<double> A, El::DistMultiVec<double> B) { 
+double calcp() { 
   // solve the pressure equation and update momentum
 
   int nsw = 200; // iterations for the linear system solver
@@ -610,14 +612,10 @@ double calcp(El::DistSparseMatrix<double> A, El::DistMultiVec<double> B) {
   }
   //  solve the sytem
   //resp = sipsol(nsw, pp, su, tol);
-  //std::cout << "Solving pressure" << std::endl;
-  sipsol_el(pp,su,A,B); phibc(pp); 
-  //std::cout << "Solved pressure" << std::endl;return 0;
+  sipsol_el(pp,su); phibc(pp); return 0.0;
 
   // extrapolate pp
-  phibc(pp); // extrapolate the pressure at the boundaries
-
-  return 0.0;
+  //phibc(pp); return 0.0;
 }
 
 void correct() { // correct velocity and pressure field
@@ -699,14 +697,12 @@ int main(int argc, char **argv){
 
     // Elemental - get block size for algorithms
     // TODO : Check if necessary 
-    const El::Int blocksize =
-    El::Input("--blocksize","algorithmic blocksize",64);
-    const El::Int verbose = 
-    El::Input("--verbose","verbose output",0);
+    const bool verbose = 
+    El::Input("--verbose","verbose output",false);
+    const bool timing = 
+    El::Input("--timing","timing output",false);
     El::ProcessInput();
     El::PrintInputReport();
-
-    El::SetBlocksize( blocksize );
 
     // read input file
     FILE *fp; fp=fopen("mycavity.in","r");
@@ -759,37 +755,25 @@ int main(int argc, char **argv){
     nx_s = nx-2;
     ny_s = ny-2;
     mdim = nx_s*ny_s;
-
-    // Initialise A
-    El::DistSparseMatrix<double> A;
-    El::Zeros(A,mdim,mdim);
-
-    El::DistMultiVec<double> B(mdim,1);
-    El::DistMultiVec<double> X(mdim,1);
     
     El::Timer timer;
-    
-    // Output localHeight
-    if (verbose == 1) {
-      std::cout << "For processor " << commRank << std::endl;
-      std::cout << "A localHeight: " << A.LocalHeight() << std::endl;
-      std::cout << "B localHeight: " << B.LocalHeight() << std::endl;
-      std::cout << std::endl;
-    }
     
     // initialize
     resu = 0.0; resv = 0.0; resp = 0.0; resT = 0.0; sum = 0.0; 
 
     // generate the grid
     grid();
+    if (commRank == 0 && verbose == true) std::cout << "Grid generated" << std::endl;
  
     // define and write to file initial conditions
     ic();
+    if (commRank == 0 && verbose == true) std::cout << "IC generated" << std::endl;
     char tecplot_filename[256];
     if (commRank == 0) {
       sprintf( tecplot_filename, "mycavity_tecplot_%d.dat", 0  );
       tecplot(tecplot_filename);
     }
+    if (commRank == 0 && verbose == true) std::cout << "IC written" << std::endl;
 
     // other control parameters...
     int itimeprint = 50;
@@ -805,6 +789,9 @@ int main(int argc, char **argv){
         T00[i] = T0[i]; u00[i] = u0[i]; v00[i] = v0[i];
         T0[i] = T[i]; u0[i] = u[i]; v0[i] = v[i];
       }
+      
+      if (commRank == 0 && verbose == true) std::cout << "Updated solution" << std::endl;
+      
       // inner iteration...
       if (commRank == 0) {
         printf(" Step %d - time %lf \n",itime,time);
@@ -813,17 +800,17 @@ int main(int argc, char **argv){
         fprintf(fpout," Iter Res(U)         Res(V)         Res(p)         Res(T)         Mas I/O \n");
       }
       
+      if (commRank == 0 && verbose == true) std::cout << "Wrote history header" << std::endl;
+      
       for (int istep=1; istep <= nsteps; istep++) {
 
         // solve momentum equations
-        El::mpi::Barrier( comm );
-        if( commRank == 0 ) timer.Start();
-        resu = calcuv(A,B);
+        if( commRank == 0 && timing == true) timer.Start();
+        resu = calcuv();
         El::mpi::Barrier( comm );
         
-        if( commRank == 0 ) El::Output(timer.Stop()," seconds");
-        
-        return(1);
+        if(commRank == 0 && timing == true) std::cout << "uv solve in: " <<
+                                      timer.Stop() << " seconds" << std::endl;
 
 	// Verification : check matrix	
         //constructLinProb(sv,A,B);
@@ -835,17 +822,23 @@ int main(int argc, char **argv){
         //Display(Y);
         
         // solve pressure equation and update momentum
+        if( commRank == 0 && timing == true) timer.Start();
+        resp = calcp();
         El::mpi::Barrier( comm );
-        resp = calcp(A,B);
-        El::mpi::Barrier( comm );
+        
+        if(commRank == 0 && timing == true) std::cout << "Pressure solve in: " <<
+                                      timer.Stop() << " seconds" << std::endl;
 
         // correct velocity and pressure field
         correct();
 
         // solve energy equation
+        if( commRank == 0 && timing == true) timer.Start();
+        resT = calct();
         El::mpi::Barrier( comm );
-        resT = calct(A,B);
-        El::mpi::Barrier( comm );
+        
+        if(commRank == 0 && timing == true) std::cout << "Temperature solve in: " <<
+                                      timer.Stop() << " seconds" << std::endl;
 
         // compute residual and check convergence
         if (commRank == 0)
@@ -867,8 +860,11 @@ int main(int argc, char **argv){
          tecplot(tecplot_filename);
        }
       }
+      if (commRank == 0 && verbose == true) std::cout << "Wrote tecplot" << std::endl;
+      
       // output global quantities of interest...
       if (commRank == 0) output();
+      if (commRank == 0 && verbose == true) std::cout << "Wrote global quantities" << std::endl;
       
     }
     if (commRank == 0)
