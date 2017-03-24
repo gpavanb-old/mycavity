@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <vector>
 
 // Solve using elemental
 #include "El.hpp"
@@ -45,6 +46,8 @@ using namespace std;
  // elemental solver variables
  int nx_s, ny_s;
  int mdim;
+ bool verbose = false;
+ bool timing = false;
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 void grid(){ // generates a structured uniform grid...
@@ -175,15 +178,23 @@ El::DistMultiVec<double> getx(double* x) {
   
   return Y;
 } 
+
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 void repopulatex(double* x, El::DistMultiVec<double>& X) {
   
   int i,j,ij;
   
+  El::DistMatrix<double> Y(mdim,1);
+  std::vector<double> y(mdim);
   //const El::Int localHeight = X.LocalHeight();
   
-  for ( El::Int p=0; p<mdim; ++p ) {
+  El::Copy(X,Y);
+  Y.ReservePulls(mdim);
+  for ( El::Int p=0; p<mdim; ++p ) 
+    Y.QueuePull(p,0);
+  Y.ProcessPullQueue(y);
 
+  for ( El::Int p=0; p<mdim; ++p) {
     //const El::Int p = X.GlobalRow(pLoc);
     const El::Int x0 = p / ny_s;
     const El::Int x1 = p % ny_s;
@@ -197,24 +208,36 @@ void repopulatex(double* x, El::DistMultiVec<double>& X) {
     // ij defined as usual
     ij = li[i]+j;
     
-    x[ij] = X.Get(p,0);
+    x[ij] = y[p];
   }
-  
 }
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 double sipsol_el(double* x, double* b) {
   
   El::DistSparseMatrix<double> A(mdim,mdim);
   El::DistMultiVec<double> B(mdim,1);
-  
-  // construct A            
+ 
+  El::Timer timer;
+
+  El::mpi::Comm comm = El::mpi::COMM_WORLD;
+  const int commRank = El::mpi::Rank( comm );
+ 
+  // construct A
+  if (commRank == 0 && timing == true) timer.Start();            
   constructLinProb(b,A,B);
   
   // solve x
   El::LinearSolve(A,B);
-  
+  El::mpi::Barrier( comm );
+  if (commRank == 0 && timing == true) 
+    std::cout << "Linear problem took " << timer.Stop() <<" seconds" << std::endl;
+
   // return answer
+  if (commRank == 0 && timing == true) timer.Start();
   repopulatex(x,B);
+  El::mpi::Barrier( comm );
+  if (commRank == 0 && timing == true) 
+    std::cout << "Repopulate took " << timer.Stop() <<" seconds" << std::endl;
 }
 
 
@@ -697,9 +720,9 @@ int main(int argc, char **argv){
 
     // Elemental - get block size for algorithms
     // TODO : Check if necessary 
-    const bool verbose = 
+    verbose = 
     El::Input("--verbose","verbose output",false);
-    const bool timing = 
+    timing = 
     El::Input("--timing","timing output",false);
     El::ProcessInput();
     El::PrintInputReport();
@@ -801,7 +824,11 @@ int main(int argc, char **argv){
       }
       
       if (commRank == 0 && verbose == true) std::cout << "Wrote history header" << std::endl;
-      
+  
+      El::Grid grid( comm);
+
+      if( commRank == 0 && verbose == true ) El::Output("Grid is: ",grid.Height()," x ",grid.Width());
+    
       for (int istep=1; istep <= nsteps; istep++) {
 
         // solve momentum equations
