@@ -1,22 +1,18 @@
-HOME_DIR=/home/pavang
+ARCH=-arch sm_30
 
-ARMADILLO_DIR=$(HOME_DIR)/numLibs/armadillo
-ARMADILLO_LIB=$(ARMADILLO_DIR)/lib/
-ARMADILLO_INC=$(ARMADILLO_DIR)/include/
+COMP=nvcc $(ARCH)
 
-OPT_FLAGS=-O3
+PARALUTION_DIR=~/Documents/paralution-1.1.0
+PARALUTION_LIB=$(PARALUTION_DIR)/build/lib/
+PARALUTION_INC=$(PARALUTION_DIR)/build/inc/
 
-.PHONY = clean clean_all
+OPT=-O3
 
-all: mycavity
+mycavityGPU: mycavityGPU.o
+	$(COMP) $(OPT) -L $(PARALUTION_LIB)  -o x.mycavityGPU mycavityGPU.o -lparalution
 
-mycavity: mycavity.cpp
-	g++ mycavity.cpp -o mycavity $(OPT_FLAGS) -I$(ARMADILLO_INC) -L$(ARMADILLO_LIB) -larmadillo
+mycavityGPU.o: mycavityGPU.cpp
+	$(COMP) -I $(PARALUTION_INC) -c mycavityGPU.cpp
 
 clean:
-	rm -f mycavity
-
-clean_all:
-	rm -f *.dat
-	rm -f *.out
-	rm -f mycavity 
+	rm -rf mycavityGPU.o x.mycavityGPU mycavityGPU.out mycavityCPU.out mycavity_tecplot_gpu_0.dat mycavity_tecplot_cpu_0.data

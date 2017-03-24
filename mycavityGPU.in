@@ -1,0 +1,18 @@
+1.0 1.0 0.05
+1.0 0.050000 0.71          
+0.0 -10.0 25.0          
+107.0422535 100.0 400.0 
+128 128 0.1 200 1e-5
+0               
+                        
+
+
+lx,ly,finaltime
+densit,visc,prm
+gravx,gravy,beta
+th,tca,tref
+ni,nj,dt
+nsteps
+converged
+adim
+
