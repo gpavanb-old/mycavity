@@ -15,13 +15,25 @@ This C++ code is a 2D, structured, massively parallel CFD code for a thermal lid
 
 * Change `ARMADILLO_DIR` in the `Makefile`. The code can now be compiled using `make` and run using `./mycavity`.
 
-### Parallel ###
+### Parallel - CPU ###
 
 * Install [Elemental](http://libelemental.org/) and its list of dependencies. Note that v0.87 was used for this code and many sparse matrix routines are on the verge of deprecation.
 
 * Run `make` in the `mycavity` directory. The code `mycavity` can now be run using the batch management system of your cluster.
 
 * Additional options include `--verbose true` and `--timing true`. These can be used to obtain stepwise prompts for the code or measure time respectively.
+
+### Parallel - GPU ###
+
+* Download [Paralution](http://www.paralution.com) and its list of dependencies. Note that v1.1.0 was used for this code.
+
+* Before compilling the source code, the following changes are necessary:
+  - Make the private attribute `initial_residual_` of the IterationControl class public. To do so, in `/paralution-1.1.0/src/solvers/iter_ctrl.hpp`, move the line `double initial_residual_;` from the private section to the public one.
+  - Make the protected attribute `iter_ctrl_` of the Solver class public. To do so, in `/paralution-1.1.0/src/solvers/solver.hpp`, move the line `IterationControl iter_ctrl_;` from the private section to the public one.
+  
+* Compile the code as detailled in the Paralution instructions.
+
+* Run `make` in the `mycavity` directory.
 
 ## Who do I talk to? ##
 
@@ -35,3 +47,5 @@ This C++ code is a 2D, structured, massively parallel CFD code for a thermal lid
 [2] Demmel, James W., John R. Gilbert, and Xiaoye S. Li. SuperLU user's guide. Computer Science Division, University of California, 1997.
 
 [3] Poulson, Jack, et al. "Elemental: A new framework for distributed memory dense matrix computations." ACM Transactions on Mathematical Software (TOMS) 39.2 (2013): 13.
+
+[4] PARALUTION Labs, Paralutionv1.1.0, [http://www.paralution.com/], 2016.
