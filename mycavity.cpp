@@ -212,7 +212,7 @@ void repopulatex(double* x, El::DistMultiVec<double>& X) {
   }
 }
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-double sipsol_el(double* x, double* b) {
+double sipsol_el(double* x, double* b, bool sym = false) {
   
   El::DistSparseMatrix<double> A(mdim,mdim);
   El::DistMultiVec<double> B(mdim,1);
@@ -227,10 +227,17 @@ double sipsol_el(double* x, double* b) {
   constructLinProb(b,A,B);
   
   // solve x
-  El::LinearSolve(A,B);
+  if (sym == false)
+    El::LinearSolve(A,B);
+  else 
+    El::HermitianSolve(A,B);
   El::mpi::Barrier( comm );
-  if (commRank == 0 && timing == true) 
-    std::cout << "Linear problem took " << timer.Stop() <<" seconds" << std::endl;
+  if (commRank == 0 && timing == true) {
+    if (sym) 
+      std::cout << "Linear (Sym) problem took " << timer.Stop() <<" seconds" << std::endl;
+    else
+      std::cout << "Linear problem took " << timer.Stop() <<" seconds" << std::endl;
+  }
 
   // return answer
   if (commRank == 0 && timing == true) timer.Start();
@@ -635,7 +642,7 @@ double calcp() {
   }
   //  solve the sytem
   //resp = sipsol(nsw, pp, su, tol);
-  sipsol_el(pp,su); phibc(pp); return 0.0;
+  sipsol_el(pp,su,true); phibc(pp); return 0.0;
 
   // extrapolate pp
   //phibc(pp); return 0.0;
