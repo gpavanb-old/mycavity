@@ -6,6 +6,8 @@ This C++ code is a 2D, structured, massively parallel CFD code for a thermal lid
 * SuperLU[2] library for the sequential sparse-direct solver
 * Elemental[3] for the multi-CPU parallelization 
 
+For more information, please refer to the [report](gpavanb_eboigne_cfd_report.pdf) or [presentation](gpavanb_me469_presentation.pptx) in the repository.
+
 ## How do I get set up? ##
 
 ### Sequential ###
